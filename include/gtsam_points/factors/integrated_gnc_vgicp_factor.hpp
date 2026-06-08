@@ -53,9 +53,9 @@ public:
     const auto hf = std::dynamic_pointer_cast<gtsam::HessianFactor>(base);
     if (!hf || hf->size() != 1) return base;
 
-    // information() returns (n+1)x(n+1) augmented [H, b; b^T, f].
+    // augmentedInformation() returns the (n+1)x(n+1) augmented [H, b; b^T, f].
     // Extract the top-left n×n block.
-    const Eigen::MatrixXd aug = hf->information();
+    const Eigen::MatrixXd aug = hf->augmentedInformation();
     const int n = aug.rows() - 1;  // == 6 for Pose3
     const Eigen::MatrixXd H = aug.topLeftCorner(n, n);
     const Eigen::VectorXd b = hf->linearTerm();
