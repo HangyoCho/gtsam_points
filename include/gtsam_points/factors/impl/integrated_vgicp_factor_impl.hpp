@@ -221,7 +221,11 @@ double IntegratedVGICPFactor_<SourceFrame>::evaluate(
       constexpr double chi2_3_median = 2.3660;  // median of chi-square with 3 dof
       const double s2 = errs[m] / chi2_3_median;
       const double c2 = s2 * gnc_chi2_quantile;
-      if (c2 > 1e-9) {
+      // The adaptive bound may only LOOSEN from the nominal floor (gnc_c2); it must not
+      // tighten below it. Otherwise a well-aligned frame (small median residual) shrinks c^2
+      // until inlier weights collapse, the scan-to-map constraint vanishes, and the estimate
+      // drifts/diverges. Loosening on hard (globally misaligned) frames is still allowed.
+      if (c2 > gnc_c2_used) {
         gnc_c2_used = c2;
       }
     }
