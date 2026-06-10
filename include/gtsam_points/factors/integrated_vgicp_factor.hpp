@@ -73,6 +73,18 @@ public:
   /// @brief Set the cache mode for fused covariance matrices (i.e., mahalanobis).
   void set_fused_cov_cache_mode(FusedCovCacheMode mode) { mahalanobis_cache_mode = mode; }
 
+  /// @brief Enable per-correspondence GNC (Graduated Non-Convexity) robust weighting.
+  ///        Each point's Geman-McClure weight is applied to its scan-to-map contribution,
+  ///        so outlier correspondences (e.g. dynamic objects absent from the prior map)
+  ///        are down-weighted individually instead of trusting/rejecting the whole frame.
+  void set_gnc(bool enable) { gnc_enabled = enable; }
+  /// @brief GNC noise bound c^2 (squared Mahalanobis residual scale separating inliers/outliers).
+  void set_gnc_noise_bound(double c2) { gnc_c2 = c2; }
+  /// @brief Initial GNC control parameter mu (>=1; large = near-convex / behaves like plain LS).
+  void set_gnc_mu_init(double mu0) { gnc_mu_init = mu0; }
+  /// @brief Geometric annealing factor for mu (mu *= decay each linearization, floored at 1).
+  void set_gnc_mu_decay(double decay) { gnc_mu_decay = decay; }
+
   /// @brief  Get the number of inlier points.
   /// @note   This function must be called after the factor is linearized.
   int num_inliers() const {
@@ -109,6 +121,14 @@ private:
   mutable std::vector<const GaussianVoxel*> correspondences;
   mutable std::vector<Eigen::Matrix4d> mahalanobis_full;
   mutable std::vector<Eigen::Matrix<float, 6, 1>> mahalanobis_compact;
+
+  // GNC (Graduated Non-Convexity) per-correspondence robust weighting (Geman-McClure).
+  // Disabled by default -> identical to the plain VGICP factor.
+  bool gnc_enabled = false;
+  double gnc_c2 = 1.0;
+  double gnc_mu_init = 100.0;
+  double gnc_mu_decay = 0.7;
+  mutable double gnc_mu = -1.0;  // <1 = uninitialized; annealed toward 1 each linearization
 
   std::shared_ptr<const GaussianVoxelMapCPU> target_voxels;
   std::shared_ptr<const SourceFrame> source;

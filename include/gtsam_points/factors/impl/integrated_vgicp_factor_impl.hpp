@@ -186,6 +186,15 @@ double IntegratedVGICPFactor_<SourceFrame>::evaluate(
 
   double sum_errors = 0.0;
 
+  // GNC (Graduated Non-Convexity) per-correspondence weighting is applied only while
+  // linearizing (H_target != null). mu is (re)initialized on first use and annealed below.
+  const bool use_gnc = gnc_enabled && (H_target != nullptr);
+  if (use_gnc && gnc_mu < 1.0) {
+    gnc_mu = gnc_mu_init;
+  }
+  const double gnc_mu_cur = (gnc_mu < 1.0) ? 1.0 : gnc_mu;
+  const double gnc_mc2 = gnc_mu_cur * gnc_c2;  // mu * c^2
+
   const auto perpoint_task = [&](
                                int i,
                                Eigen::Matrix<double, 6, 6>* H_target,
@@ -229,6 +238,14 @@ double IntegratedVGICPFactor_<SourceFrame>::evaluate(
       return error;
     }
 
+    // GNC Geman-McClure per-correspondence weight: w = ( mu*c2 / (mu*c2 + e) )^2
+    double gnc_w = 1.0;
+    if (use_gnc) {
+      const double denom = gnc_mc2 + error;
+      const double r = (denom > 0.0) ? (gnc_mc2 / denom) : 0.0;
+      gnc_w = r * r;
+    }
+
     Eigen::Matrix<double, 4, 6> J_target = Eigen::Matrix<double, 4, 6>::Zero();
     J_target.block<3, 3>(0, 0) = -gtsam::SO3::Hat(transed_mean_A.head<3>());
     J_target.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
@@ -240,20 +257,28 @@ double IntegratedVGICPFactor_<SourceFrame>::evaluate(
     Eigen::Matrix<double, 6, 4> J_target_mahalanobis = J_target.transpose() * mahalanobis;
     Eigen::Matrix<double, 6, 4> J_source_mahalanobis = J_source.transpose() * mahalanobis;
 
-    *H_target += J_target_mahalanobis * J_target;
-    *H_source += J_source_mahalanobis * J_source;
-    *H_target_source += J_target_mahalanobis * J_source;
-    *b_target += J_target_mahalanobis * residual;
-    *b_source += J_source_mahalanobis * residual;
+    *H_target += gnc_w * (J_target_mahalanobis * J_target);
+    *H_source += gnc_w * (J_source_mahalanobis * J_source);
+    *H_target_source += gnc_w * (J_target_mahalanobis * J_source);
+    *b_target += gnc_w * (J_target_mahalanobis * residual);
+    *b_source += gnc_w * (J_source_mahalanobis * residual);
 
-    return error;
+    return gnc_w * error;
   };
 
+  double total_error;
   if (is_omp_default() || num_threads == 1) {
-    return scan_matching_reduce_omp(perpoint_task, frame::size(*source), num_threads, H_target, H_source, H_target_source, b_target, b_source);
+    total_error = scan_matching_reduce_omp(perpoint_task, frame::size(*source), num_threads, H_target, H_source, H_target_source, b_target, b_source);
   } else {
-    return scan_matching_reduce_tbb(perpoint_task, frame::size(*source), H_target, H_source, H_target_source, b_target, b_source);
+    total_error = scan_matching_reduce_tbb(perpoint_task, frame::size(*source), H_target, H_source, H_target_source, b_target, b_source);
   }
+
+  // Anneal mu geometrically toward 1 after each linearization (GNC schedule).
+  if (use_gnc) {
+    const double next = gnc_mu_cur * gnc_mu_decay;
+    gnc_mu = (next < 1.0) ? 1.0 : next;
+  }
+  return total_error;
 }
 
 }  // namespace gtsam_points
