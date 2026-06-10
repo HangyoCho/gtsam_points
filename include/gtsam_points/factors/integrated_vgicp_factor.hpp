@@ -78,8 +78,14 @@ public:
   ///        so outlier correspondences (e.g. dynamic objects absent from the prior map)
   ///        are down-weighted individually instead of trusting/rejecting the whole frame.
   void set_gnc(bool enable) { gnc_enabled = enable; }
-  /// @brief GNC noise bound c^2 (squared Mahalanobis residual scale separating inliers/outliers).
+  /// @brief Fixed GNC noise bound c^2 (used only when adaptive bound is disabled).
   void set_gnc_noise_bound(double c2) { gnc_c2 = c2; }
+  /// @brief Adaptive noise bound: estimate c^2 per frame from the residual distribution.
+  ///        e_i is a Mahalanobis residual (~chi-square(3) for inliers), so a robust scale
+  ///        s^2 = median(e_i)/median(chi2_3) gives c^2 = s^2 * chi2_quantile. On by default.
+  void set_gnc_adaptive(bool enable) { gnc_adaptive = enable; }
+  /// @brief Chi-square quantile (3 dof) for the adaptive bound, e.g. 6.25 (90%) / 7.815 (95%).
+  void set_gnc_chi2_quantile(double q) { gnc_chi2_quantile = q; }
   /// @brief Initial GNC control parameter mu (>=1; large = near-convex / behaves like plain LS).
   void set_gnc_mu_init(double mu0) { gnc_mu_init = mu0; }
   /// @brief Geometric annealing factor for mu (mu *= decay each linearization, floored at 1).
@@ -125,7 +131,9 @@ private:
   // GNC (Graduated Non-Convexity) per-correspondence robust weighting (Geman-McClure).
   // Disabled by default -> identical to the plain VGICP factor.
   bool gnc_enabled = false;
-  double gnc_c2 = 1.0;
+  bool gnc_adaptive = true;          // estimate c^2 per frame from the residual scale
+  double gnc_c2 = 1.0;               // fixed bound (used when gnc_adaptive == false)
+  double gnc_chi2_quantile = 7.815;  // chi-square(3) 95% quantile for the adaptive bound
   double gnc_mu_init = 100.0;
   double gnc_mu_decay = 0.7;
   mutable double gnc_mu = -1.0;  // <1 = uninitialized; annealed toward 1 each linearization

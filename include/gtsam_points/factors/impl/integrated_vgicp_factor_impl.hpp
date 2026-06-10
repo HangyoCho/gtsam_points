@@ -3,6 +3,9 @@
 
 #include <gtsam_points/factors/integrated_vgicp_factor.hpp>
 
+#include <vector>
+#include <algorithm>
+
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/linear/HessianFactor.h>
 #include <gtsam_points/config.hpp>
@@ -193,7 +196,37 @@ double IntegratedVGICPFactor_<SourceFrame>::evaluate(
     gnc_mu = gnc_mu_init;
   }
   const double gnc_mu_cur = (gnc_mu < 1.0) ? 1.0 : gnc_mu;
-  const double gnc_mc2 = gnc_mu_cur * gnc_c2;  // mu * c^2
+
+  // Noise bound c^2: fixed, or estimated adaptively from this frame's residual scale.
+  // e_i is a Mahalanobis residual (~chi-square with 3 dof for inliers), so a robust scale
+  // s^2 = median(e_i) / median(chi2_3) yields c^2 = s^2 * chi2_quantile (no magic constant).
+  double gnc_c2_used = gnc_c2;
+  if (use_gnc && gnc_adaptive && mahalanobis_cache_mode != FusedCovCacheMode::NONE) {
+    std::vector<double> errs;
+    errs.reserve(frame::size(*source));
+    for (int i = 0; i < frame::size(*source); i++) {
+      const auto& tv = correspondences[i];
+      if (tv == nullptr) {
+        continue;
+      }
+      const Eigen::Vector4d res = tv->mean - delta * frame::point(*source, i);
+      const Eigen::Matrix4d maha = (mahalanobis_cache_mode == FusedCovCacheMode::COMPACT)
+                                     ? uncompact_cov(mahalanobis_compact[i])
+                                     : mahalanobis_full[i];
+      errs.push_back(res.transpose() * maha * res);
+    }
+    if (!errs.empty()) {
+      const size_t m = errs.size() / 2;
+      std::nth_element(errs.begin(), errs.begin() + m, errs.end());
+      constexpr double chi2_3_median = 2.3660;  // median of chi-square with 3 dof
+      const double s2 = errs[m] / chi2_3_median;
+      const double c2 = s2 * gnc_chi2_quantile;
+      if (c2 > 1e-9) {
+        gnc_c2_used = c2;
+      }
+    }
+  }
+  const double gnc_mc2 = gnc_mu_cur * gnc_c2_used;  // mu * c^2
 
   const auto perpoint_task = [&](
                                int i,
