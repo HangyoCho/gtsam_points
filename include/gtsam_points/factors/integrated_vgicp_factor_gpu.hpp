@@ -87,6 +87,15 @@ public:
   /// @note  To enable surface orientation validation, source frame must have point normals
   void set_enable_surface_validation(bool enable);
 
+  /// @brief Enable per-correspondence GNC (Geman-McClure) robust weighting.
+  /// @param enable        turn GNC on/off
+  /// @param adaptive      estimate the noise bound c^2 per linearization from the residual median
+  /// @param noise_bound   nominal floor noise bound c^2 (used as fallback / floor)
+  /// @param chi2_quantile chi-square(3) quantile for the adaptive bound
+  /// @param mu_init       initial GNC control parameter (annealed toward 1)
+  /// @param mu_decay      geometric annealing factor
+  void set_gnc(bool enable, bool adaptive, double noise_bound, double chi2_quantile, double mu_init, double mu_decay);
+
   /// @brief Set the threshold values to trigger inlier points update.
   ///        Setting larger values reduces GPU sync but may affect the registration accuracy.
   void set_inlier_update_thresh(double trans, double angle);

@@ -17,13 +17,17 @@ struct vgicp_derivatives_kernel {
     const Eigen::Isometry3f* linearization_point_ptr,
     const GaussianVoxelMapGPU& voxelmap,
     const Eigen::Vector3f* source_means,
-    const Eigen::Matrix3f* source_covs)
+    const Eigen::Matrix3f* source_covs,
+    bool gnc_enabled = false,
+    float gnc_mu_c2 = 1.0f)
   : linearization_point_ptr(linearization_point_ptr),
     voxel_num_points_ptr(voxelmap.num_points),
     voxel_means_ptr(voxelmap.voxel_means),
     voxel_covs_ptr(voxelmap.voxel_covs),
     source_means_ptr(source_means),
-    source_covs_ptr(source_covs) {}
+    source_covs_ptr(source_covs),
+    gnc_enabled(gnc_enabled),
+    gnc_mu_c2(gnc_mu_c2) {}
 
   __device__ LinearizedSystem6 operator()(const thrust::pair<int, int>& source_target_correspondence) const {
     const int source_idx = source_target_correspondence.first;
@@ -69,6 +73,21 @@ struct vgicp_derivatives_kernel {
     linearized.b_target = J_target_RCR_inv * error;
     linearized.b_source = J_source_RCR_inv * error;
 
+    // Per-correspondence GNC (Geman-McClure, minimized by Graduated Non-Convexity).
+    // Weight w = (mu*c^2 / (mu*c^2 + e_i))^2 down-weights high-residual correspondences
+    // (e.g. dynamic objects absent from the prior map). mu is annealed toward 1 by the caller.
+    if (gnc_enabled) {
+      const float e = linearized.error;
+      const float w = gnc_mu_c2 / (gnc_mu_c2 + e);
+      const float w2 = w * w;
+      linearized.error *= w2;
+      linearized.H_target *= w2;
+      linearized.H_source *= w2;
+      linearized.H_target_source *= w2;
+      linearized.b_target *= w2;
+      linearized.b_source *= w2;
+    }
+
     return linearized;
   }
 
@@ -80,6 +99,9 @@ struct vgicp_derivatives_kernel {
 
   const Eigen::Vector3f* source_means_ptr;
   const Eigen::Matrix3f* source_covs_ptr;
+
+  bool gnc_enabled;
+  float gnc_mu_c2;  // mu * c^2 (precomputed by the caller per linearization)
 };
 
 struct vgicp_error_kernel {

@@ -107,6 +107,10 @@ void IntegratedVGICPFactorGPU::set_enable_surface_validation(bool enable) {
   derivatives->set_enable_surface_validation(enable);
 }
 
+void IntegratedVGICPFactorGPU::set_gnc(bool enable, bool adaptive, double noise_bound, double chi2_quantile, double mu_init, double mu_decay) {
+  derivatives->set_gnc(enable, adaptive, noise_bound, chi2_quantile, mu_init, mu_decay);
+}
+
 void IntegratedVGICPFactorGPU::set_inlier_update_thresh(double trans, double angle) {
   derivatives->set_inlier_update_thresh(trans, angle);
 }
